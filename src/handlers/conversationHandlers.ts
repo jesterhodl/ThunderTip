@@ -83,12 +83,15 @@ export async function deleteConnection(conversation: MyConversation, ctx: MyCont
 
 export async function createInvoice( conversation: MyConversation, ctx: MyContext ){
 try{
+
     if(!ctx.message){
         throw new Error("No message in context!")
     }
+
     const user = await User.init(ctx.message.from.id.toString());
     (!user.connection)&&(()=>{throw new SenderConnectionError("")})();
     await user.connection.enable();
+
     await ctx.reply("Alraight! How many sats do you want to receive? ⚡");
     const { message} = await conversation.wait();
     const amount = Math.ceil(Number(message?.text))
@@ -97,19 +100,29 @@ try{
     if(!username){
         throw new Error("No username in context!")
     }
+
     const invoice = await user.createInvoice(amount, `Thundertip payment to ${username} via qr-code`);
     if(!invoice){
         throw new Error("No invoice!")
     }
-    await generateQr(invoice.paymentRequest.toString(), username, timestamp);
+
     await ctx.reply("Your invoice:")
+    await ctx.reply(invoice.paymentRequest.toString());
+
+    await generateQr(invoice.paymentRequest.toString(), username, timestamp);
     const filePath = path.join(__dirname, '..', 'temp', `/${username}_${timestamp}.jpeg`);
-    await ctx.reply(invoice!.paymentRequest.toString());
     const photoMessage = await ctx.replyWithPhoto(new InputFile(filePath))
+
+    //delete photo after sending
     if(photoMessage){
-        fs.unlink(path.toString(), (err)=>(
-            console.error(err)
-        ))
+        fs.unlink(filePath, (err)=>{
+            if(err){
+                console.error(err);
+            }else{
+                console.log(`succesfully deleted file ${filePath}`);
+            }
+            }
+        )
     }
 } catch (e){
     await handleError(e as unknown as Error, ctx)
