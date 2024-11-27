@@ -71,10 +71,24 @@ class EncryptionError extends Error{
         super(message);
     }
 }
+class ExpiredReceiverError extends Error{
+    constructor(message: string) {
+        super(message);
+    }
+}
 
+class ExpiredSenderError extends Error{
+    constructor(message: string) {
+        super(message);
+    }
+}
 
-async function handleError(error:Error, ctx:Context){
-    error.constructor.name
+class UnexpectedCallbackQueryError extends Error{
+    constructor(message: string) {
+        super(message);
+    }
+}
+async function handleError(error:Error|Error&{code:any}, ctx:Context){
     let message=  "";
     if(error instanceof NegativeTipAmountError){
         message = "Negative tips are not allowed. Generosity doesn't work that way!";
@@ -109,6 +123,18 @@ async function handleError(error:Error, ctx:Context){
     if(error instanceof DatabaseConnectionError){
         message = "There is something wrong with database! Try again later pls"
     }
+    if(error instanceof ExpiredReceiverError){
+        message="Receiver can't get your tip, it's NWC connection expired!"
+    }
+    if(error instanceof ExpiredSenderError){
+        message="Your NWC connection has expired! Dm me with /connection and update it!"
+    }
+    if(error instanceof UnexpectedCallbackQueryError){
+        message="Honestly, i don't know that button you've just clicked!"
+    }
+    if('code' in error && error.code  == 'ERR_INVALID_URL'){
+        message = "It looks like you've used an invalid URL! Try again with correct data!";
+    }
     if(message){
         if(ctx.msg){
             await ctx.reply(message, {
@@ -121,6 +147,7 @@ async function handleError(error:Error, ctx:Context){
         await ctx.reply(`Yikes! Something went wrong. Try again later.`);
         await bot.api.sendMessage(parseInt(process.env.OWNER_ID!), error.message);
     }
+    console.trace(error)
 }
 
 export {
@@ -136,5 +163,9 @@ export {
     ConnectionRequestInGroupChatError,
     DatabaseConnectionError,
     EncryptionError,
+    ExpiredSenderError,
+    ExpiredReceiverError,
+    UnexpectedCallbackQueryError,
+
     handleError
 }

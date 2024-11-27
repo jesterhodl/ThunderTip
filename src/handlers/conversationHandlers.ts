@@ -2,10 +2,18 @@ import { webln } from "@getalby/sdk";
 import {MyContext, MyConversation} from "../types";
 import User from '../classes/User'
 import supabase from "../config/supabaseConfig";
-import {handleError} from "../errors";
+import {handleError, SenderConnectionError} from "../errors";
+import {generateQr} from "../utils/generateQr";
 
-export async function handleConnect(ctx: MyContext, conversation: MyConversation) {
-    const user = await User.init(ctx.message?.from.id.toString()!);
+import {InputFile} from "grammy";
+import path from "node:path";
+import * as fs from "node:fs";
+
+export async function connect(conversation: MyConversation, ctx: MyContext) {
+    if(!ctx.update.callback_query){
+        throw new Error("No callback query in context!")
+    }
+    const user = await User.init(ctx.update.callback_query.from.id.toString());
     if (user.isNew) {
         await ctx.reply('To connect your wallet, send your NWC wallet connecting URI', {
             reply_markup: {
@@ -14,6 +22,7 @@ export async function handleConnect(ctx: MyContext, conversation: MyConversation
         });
 
         const { message } = await conversation.wait();
+
         if (message && message.text) {
             try {
                 const connection = new webln.NWC({ nostrWalletConnectUrl: message.text });
@@ -31,8 +40,11 @@ export async function handleConnect(ctx: MyContext, conversation: MyConversation
     }
 }
 
-export async function handleUpdate(ctx: MyContext, conversation: MyConversation) {
-    const user = await User.init(ctx.message!.from.id.toString());
+export async function updateConnection(conversation: MyConversation, ctx: MyContext) {
+    if(!ctx.update.callback_query){
+        throw new Error("No callback query in context!")
+    }
+    const user = await User.init(ctx.update.callback_query.from.id.toString());
     if (user.connection) {
         await ctx.reply("Please provide your new NWC URL.");
         const { message } = await conversation.wait();
@@ -51,10 +63,10 @@ export async function handleUpdate(ctx: MyContext, conversation: MyConversation)
     }
 }
 
-export async function handleDelete(ctx: MyContext, conversation: MyConversation) {
-    await ctx.reply('Do you really want to delete your NWC connection?\nNo funds will be lost.\nIf yes, text me "yes", if not, send anything else.');
+export async function deleteConnection(conversation: MyConversation, ctx: MyContext) {
+    await ctx.reply('Do you really want to delete your NWC connection?\nNo funds will be lost.\nIf yes, text me "delete my connection", if not, send anything else.');
     const { message } = await conversation.wait();
-    if (message && message.text === "yes") {
+    if (message && message.text === "delete my connection") {
         const { error } = await supabase
             .from('users')
             .delete()
@@ -67,4 +79,42 @@ export async function handleDelete(ctx: MyContext, conversation: MyConversation)
     } else {
         await ctx.reply("Deletion aborted. What a relief!");
     }
+}
+
+export async function createInvoice( conversation: MyConversation, ctx: MyContext ){
+try{
+    if(!ctx.message){
+        throw new Error("No message in context!")
+    }
+    const user = await User.init(ctx.message.from.id.toString());
+    (!user.connection)&&(()=>{throw new SenderConnectionError("")})();
+    await user.connection.enable();
+    await ctx.reply("Alraight! How many sats do you want to receive? ⚡");
+    const { message} = await conversation.wait();
+    const amount = Math.ceil(Number(message?.text))
+    const timestamp = Date.now();
+    const username = ctx.message.from.username;
+    if(!username){
+        throw new Error("No username in context!")
+    }
+    const invoice = await user.createInvoice(amount, `Thundertip payment to ${username} via qr-code`);
+    if(!invoice){
+        throw new Error("No invoice!")
+    }
+    await generateQr(invoice.paymentRequest.toString(), username, timestamp);
+    await ctx.reply("Your invoice:")
+    const filePath = path.join(__dirname, '..', 'temp', `/${username}_${timestamp}.jpeg`);
+    await ctx.reply(invoice!.paymentRequest.toString());
+    const photoMessage = await ctx.replyWithPhoto(new InputFile(filePath))
+    if(photoMessage){
+        fs.unlink(path.toString(), (err)=>(
+            console.error(err)
+        ))
+    }
+} catch (e){
+    await handleError(e as unknown as Error, ctx)
+}
+
+
+
 }
